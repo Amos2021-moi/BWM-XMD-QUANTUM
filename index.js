@@ -1,111 +1,85 @@
-//  [BWM-XMD QUANTUM ENHANCED]
-//  Final Bot Setup: Stable, Auto View, React, Anti-delete
-
-const { default: makeWASocket, useSingleFileAuthState, DisconnectReason, proto } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
+const { WAConnection, MessageType, Mimetype } = require('@adiwajshing/baileys');
 const fs = require('fs');
 const axios = require('axios');
-const cheerio = require('cheerio');
-const path = require('path');
+const moment = require('moment');
+const cron = require('node-cron');
 
-// Config and session
-const adams = require("./config");
-const { state, saveState } = useSingleFileAuthState('./auth.json');
+const conn = new WAConnection();
+let phoneNumber = 'YOUR_PHONE_NUMBER';  // Add your phone number here
 
-// Start WhatsApp Connection
-const connectToWA = () => {
-  const conn = makeWASocket({
-    auth: state,
-    printQRInTerminal: true
-  });
-
-  conn.ev.on('creds.update', saveState);
-
-  conn.ev.on('connection.update', (update) => {
-    const { connection, lastDisconnect } = update;
-
-    if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('Connection closed. Reconnecting:', shouldReconnect);
-      if (shouldReconnect) connectToWA();
-      else console.log('Logged out. Delete auth.json to re-login.');
-    } else if (connection === 'open') {
-      console.log('Bot connected and stable.');
-      setupAutoViewAndReact(conn);
-      setupAntiDelete(conn);
-    }
-  });
-
-  fetchINDEXUrl(conn);
-  return conn;
-};
-
-// Load dynamic INDEX script
-async function fetchINDEXUrl(conn) {
+// Load authentication information from file or create a new one
+async function loadAuth() {
   try {
-    const response = await axios.get(adams.BWM_XMD);
-    const $ = cheerio.load(response.data);
-    const targetUrl = $('a:contains("INDEX")').attr('href');
-
-    if (!targetUrl) throw new Error('heart not found 😭');
-
-    console.log('The heart is loaded successfully ✅');
-    const scriptResponse = await axios.get(targetUrl);
-    eval(scriptResponse.data);
+    if (fs.existsSync('./auth_info.json')) {
+      conn.loadAuthInfo('./auth_info.json');
+    }
+    await conn.connect();
+    fs.writeFileSync('./auth_info.json', JSON.stringify(conn.base64EncodedAuthInfo(), null, '\t'));
+    console.log('Bot is connected successfully!');
   } catch (error) {
-    console.error('Error loading INDEX:', error.message);
+    console.log('Error loading auth info:', error);
   }
 }
 
-// Auto View and React to Statuses
-function setupAutoViewAndReact(conn) {
-  conn.ev.on('messages.upsert', async (msg) => {
-    try {
-      const m = msg.messages[0];
-      if (!m || m.key.fromMe || !m.key.remoteJid.includes('status@broadcast')) return;
-
-      await new Promise(res => setTimeout(res, 1000));
-      await conn.readMessages([m.key]);
-
-      const emojis = ['❤️', '🔥', '😍', '✨'];
-      const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-
-      await conn.sendMessage(m.key.remoteJid, {
-        react: { text: emoji, key: m.key }
-      });
-
-      console.log(`Reacted to status from ${m.key.remoteJid} with ${emoji}`);
-    } catch (e) {
-      console.error('Auto Status View/React Error:', e);
-    }
-  });
+// Send a message to a contact or group
+async function sendMessage(to, message) {
+  await conn.sendMessage(to, message, MessageType.text);
 }
 
-// Anti Delete for messages and status
-function setupAntiDelete(conn) {
-  conn.ev.on('messages.delete', async (m) => {
-    try {
-      const remoteJid = m.keys[0]?.remoteJid;
-      const participant = m.keys[0]?.participant || m.keys[0]?.remoteJid;
+// Auto Status View Feature (Every 10 minutes)
+cron.schedule('*/10 * * * *', async () => {
+  const status = await conn.getStatus(phoneNumber);
+  if (status) {
+    console.log('Auto Status View: Checking status...');
+    await conn.sendMessage(phoneNumber, 'Status viewed by bot', MessageType.text);
+  }
+}, {
+  scheduled: true,
+  timezone: "Asia/Kolkata"
+});
 
-      // Fetch deleted message content from memory (Baileys stores it temporarily)
-      const msg = conn.loadMessage ? await conn.loadMessage(remoteJid, m.keys[0].id) : null;
-
-      if (msg?.message) {
-        const type = Object.keys(msg.message)[0];
-        const text = msg.message[type]?.text || msg.message[type]?.caption || '[media]';
-        const name = participant.split('@')[0];
-
-        await conn.sendMessage(remoteJid, {
-          text: `❌ *Deleted Message by @${name}:*\n\n${text}`,
-          mentions: [participant]
-        });
-      }
-    } catch (e) {
-      console.error('Anti Delete Error:', e);
-    }
-  });
+// Auto React Feature
+async function autoReact(message) {
+  const isGroup = message.key.remoteJid.endsWith('@g.us');
+  if (isGroup) {
+    console.log(`Auto React: Reacting to a group message from ${message.key.remoteJid}`);
+    const reactions = ['😊', '😂', '👍']; // Add more emojis
+    await conn.sendMessage(message.key.remoteJid, { react: { text: reactions[Math.floor(Math.random() * reactions.length)], key: message.key } });
+  }
 }
 
-// Start it all
-global.conn = connectToWA();
+// Listen for messages
+conn.on('chat-update', async (chatUpdate) => {
+  if (!chatUpdate.hasNewMessage) return;
+  const message = chatUpdate.messages.all()[0];
+  const from = message.key.remoteJid;
+
+  console.log(`New message from ${from}:`, message);
+
+  // Auto React to incoming messages
+  await autoReact(message);
+
+  // Command: !status
+  if (message.message.conversation === '!status') {
+    await sendMessage(from, 'Bot is online! How can I help you?');
+  }
+
+  // Command: !autoreact
+  if (message.message.conversation === '!autoreact') {
+    await sendMessage(from, 'Auto React is now enabled!');
+  }
+
+  // Command: !viewstatus
+  if (message.message.conversation === '!viewstatus') {
+    const status = await conn.getStatus(phoneNumber);
+    await sendMessage(from, `Current status: ${status.status || 'No status set'}`);
+  }
+});
+
+// Initialize the connection and load the bot
+loadAuth();
+
+// Listen for incoming connection
+conn.on('open', () => {
+  console.log('Bot is connected and ready to use!');
+});
