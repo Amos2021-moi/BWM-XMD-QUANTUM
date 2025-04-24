@@ -68,11 +68,13 @@ function setupAutoViewAndReact() {
 // Start the bot
 fetchINDEXUrl();
 
-// Wait until conn is available, then run auto-react feature
+// Delay setup until conn is defined
 let checkConn = setInterval(() => {
   if (typeof conn !== 'undefined') {
     clearInterval(checkConn);
     setupAutoViewAndReact();
     console.log("Auto View & React feature initialized.");
+
+    // Do NOT send any startup announcement message
   }
 }, 1000);
