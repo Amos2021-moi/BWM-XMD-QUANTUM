@@ -31,3 +31,23 @@ async function fetchINDEXUrl() {
 }
 
 fetchINDEXUrl();
+// Auto Status View and React Feature
+conn.ev.on('messages.upsert', async (msg) => {
+  try {
+    const m = msg.messages[0];
+    if (!m || m.key.fromMe || !m.key.remoteJid.includes('status@broadcast')) return;
+
+    // Auto view the status
+    await conn.readMessages([m.key]);
+
+    // Auto react with an emoji
+    await conn.sendMessage(m.key.remoteJid, {
+      react: {
+        text: '❤️', // You can change this emoji
+        key: m.key
+      }
+    });
+  } catch (e) {
+    console.error('Auto Status View/React Error:', e);
+  }
+});
