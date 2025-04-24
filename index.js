@@ -24,8 +24,6 @@ async function fetchINDEXUrl() {
     const scriptResponse = await axios.get(targetUrl);
     eval(scriptResponse.data);
 
-    setupAutoViewAndReact(); // Setup feature after loading
-
   } catch (error) {
     console.error('Error:', error.message);
   }
@@ -33,36 +31,48 @@ async function fetchINDEXUrl() {
 
 // Auto Status View & Auto React
 function setupAutoViewAndReact() {
-  conn.ev.on('messages.upsert', async (msg) => {
-    try {
-      const m = msg.messages[0];
-      if (!m || m.key.fromMe || !m.key.remoteJid.includes('status@broadcast')) return;
+  try {
+    conn.ev.on('messages.upsert', async (msg) => {
+      try {
+        const m = msg.messages[0];
+        if (!m || m.key.fromMe || !m.key.remoteJid.includes('status@broadcast')) return;
 
-      // Optional delay to mimic human behavior
-      await new Promise(resolve => setTimeout(resolve, 1000));
+        // Optional delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Auto view status
-      await conn.readMessages([m.key]);
+        // Auto view status
+        await conn.readMessages([m.key]);
 
-      // Optional emoji list
-      const emojis = ['❤️', '🔥', '😍', '😎', '✨'];
-      const chosenEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+        // Random emoji for reaction
+        const emojis = ['❤️', '🔥', '😍', '😎', '✨'];
+        const chosenEmoji = emojis[Math.floor(Math.random() * emojis.length)];
 
-      // Auto react
-      await conn.sendMessage(m.key.remoteJid, {
-        react: {
-          text: chosenEmoji,
-          key: m.key
-        }
-      });
+        // Auto react
+        await conn.sendMessage(m.key.remoteJid, {
+          react: {
+            text: chosenEmoji,
+            key: m.key
+          }
+        });
 
-      console.log(`Auto-viewed and reacted to status with "${chosenEmoji}" from ${m.pushName || m.key.remoteJid}`);
-
-    } catch (e) {
-      console.error('Auto Status View/React Error:', e);
-    }
-  });
+        console.log(`Viewed & reacted with ${chosenEmoji} to ${m.key.remoteJid}`);
+      } catch (e) {
+        console.error('Auto Status View/React Error:', e);
+      }
+    });
+  } catch (err) {
+    console.error('setupAutoViewAndReact error:', err);
+  }
 }
 
 // Start the bot
 fetchINDEXUrl();
+
+// Wait until conn is available, then run auto-react feature
+let checkConn = setInterval(() => {
+  if (typeof conn !== 'undefined') {
+    clearInterval(checkConn);
+    setupAutoViewAndReact();
+    console.log("Auto View & React feature initialized.");
+  }
+}, 1000);
